@@ -1,5 +1,4 @@
 import argparse
-from models import args_for_model
 
 def args_for_data(parser):
     parser.add_argument('--train', type=str, default='../data/train.csv')
@@ -19,6 +18,10 @@ def args_for_train(parser):
     parser.add_argument('--scheduler', type=str, default='None')
     parser.add_argument('--warmup_epochs', type=int, default=10, help='number of warmup epoch of lr scheduler')
 
+    # ViT 모델을 위한 하이퍼파라미터 추가
+    parser.add_argument('--num_classes', type=int, default=10, help='number of classes for the model')
+    parser.add_argument('--image_size', type=int, default=224, help='input image size for the model')
+
     parser.add_argument('--continue_train', type=int, default=-1, help='continue training from fold x') 
     parser.add_argument('--continue_train_from', type=str, default=None, help='continue training from last model, (main.py)') 
     parser.add_argument('--continue_from_folder', type=str, help='continue training from args.continue_from')
@@ -26,12 +29,17 @@ def args_for_train(parser):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', default=42, type=int)
-    parser.add_argument('--model', default='?', type=str)
+    # 모델 선택 인자 수정
+    parser.add_argument('--model', default='vit_b16', type=str,
+                        help='model type to use (vit_b16 or sparse_vit_b16)',
+                        choices=['vit_b16', 'sparse_vit_b16'])
 
     args_for_data(parser)
     args_for_train(parser)
-    _args, _ = parser.parse_known_args()
-    args_for_model(parser, _args.model)
+    
+    # 더 이상 필요 없는 args_for_model 호출 제거
+    # _args, _ = parser.parse_known_args()
+    # args_for_model(parser, _args.model)
 
     args = parser.parse_args()
     return args
