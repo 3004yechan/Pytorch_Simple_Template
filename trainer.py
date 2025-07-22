@@ -3,6 +3,7 @@ import sys
 import torch
 import numpy as np
 from tqdm import tqdm
+import time # 시간 측정을 위해 time 모듈 임포트
 
 class Trainer():
     def __init__(self, train_loader, valid_loader, model, loss_fn, optimizer, scheduler, device, patience, epochs, result_path, fold_logger, **kargs):
@@ -25,11 +26,15 @@ class Trainer():
         best = np.inf
         for epoch in range(self.start_epoch + 1, self.epochs+1):
             print(f'lr: {self.scheduler.get_last_lr()}')
-            loss_train, score_train = self.train_step()
-            loss_val, score_val = self.valid_step()
+            loss_train, score_train, train_time = self.train_step()
+            loss_val, score_val, val_time, val_throughput = self.valid_step()
             self.scheduler.step()
 
-            self.logger.info(f'Epoch {str(epoch).zfill(5)}: t_loss:{loss_train:.3f} t_score:{score_train:.3f} v_loss:{loss_val:.3f} v_score:{score_val:.3f}')
+            self.logger.info(
+                f'Epoch {str(epoch).zfill(5)}: '
+                f't_loss:{loss_train:.3f} t_score:{score_train:.3f} t_time:{train_time:.2f}s | '
+                f'v_loss:{loss_val:.3f} v_score:{score_val:.3f} v_time:{val_time:.2f}s v_throughput:{val_throughput:.2f}img/s'
+            )
 
             if loss_val < best:
                 best = loss_val
@@ -60,6 +65,7 @@ class Trainer():
 
     def train_step(self):
         self.model.train()
+        start_time = time.time() # 학습 시작 시간 기록
 
         total_loss = 0
         correct = 0
@@ -78,10 +84,14 @@ class Trainer():
             preds = (output.squeeze() > 0).float()
             correct += (preds == y).sum().item()
         
-        return total_loss/len(self.train_loader.dataset), correct/len(self.train_loader.dataset)
+        end_time = time.time() # 학습 종료 시간 기록
+        epoch_time = end_time - start_time # 총 학습 시간 계산
+        
+        return total_loss/len(self.train_loader.dataset), correct/len(self.train_loader.dataset), epoch_time
     
     def valid_step(self):
         self.model.eval()
+        start_time = time.time() # 검증 시작 시간 기록
         with torch.no_grad():
             total_loss = 0
             correct = 0
@@ -96,8 +106,12 @@ class Trainer():
                 # 정확도 계산 로직 수정: logit > 0 이면 1, 아니면 0으로 예측
                 preds = (output.squeeze() > 0).float()
                 correct += (preds == y).sum().item()
-                
-        return total_loss/len(self.valid_loader.dataset), correct/len(self.valid_loader.dataset)
+        
+        end_time = time.time() # 검증 종료 시간 기록
+        epoch_time = end_time - start_time # 총 검증 시간 계산
+        throughput = len(self.valid_loader.dataset) / epoch_time # 초당 처리량 계산
+
+        return total_loss/len(self.valid_loader.dataset), correct/len(self.valid_loader.dataset), epoch_time, throughput
     
     def test(self, test_loader):
         # self.model.load_state_dict(torch.load(self.best_model_path)) # main.py에서 trainer.train()을 호출하면 이미 최적 모델이 로드되어 있음
