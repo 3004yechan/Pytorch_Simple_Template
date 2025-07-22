@@ -19,7 +19,7 @@ class Trainer():
         self.best_model_path = os.path.join(result_path, 'best_model.pt')
         self.last_model_path = os.path.join(result_path, 'last_model.pt')
 
-        self.start_epoch = kargs['start_epochs'] if 'start_epochs' in kargs else 0
+        self.start_epoch = kargs['start_epoch'] if 'start_epoch' in kargs else 0
     
     def train(self):
         best = np.inf
@@ -64,16 +64,19 @@ class Trainer():
         total_loss = 0
         correct = 0
         for batch in tqdm(self.train_loader, file=sys.stdout): #tqdm output will not be written to logger file(will only written to stdout)
-            x, y = batch['data'].to(self.device), batch['label'].to(self.device)
+            x, y = batch['image'].to(self.device), batch['label'].to(self.device)
 
             self.optimizer.zero_grad()
-            output = self.model(x)            
-            loss = self.loss_fn(output, y)
+            output = self.model(x)
+            # BCEWithLogitsLoss를 위해 라벨 텐서의 차원을 맞춤 (B, 1)
+            loss = self.loss_fn(output, y.unsqueeze(1))
             loss.backward()
             self.optimizer.step()
 
             total_loss += loss.item() * x.shape[0]
-            correct += sum(output.argmax(dim=1) == y).item() # classification task
+            # 정확도 계산 로직 수정: logit > 0 이면 1, 아니면 0으로 예측
+            preds = (output.squeeze() > 0).float()
+            correct += (preds == y).sum().item()
         
         return total_loss/len(self.train_loader.dataset), correct/len(self.train_loader.dataset)
     
@@ -83,24 +86,36 @@ class Trainer():
             total_loss = 0
             correct = 0
             for batch in self.valid_loader:
-                x, y = batch['data'].to(self.device), batch['label'].to(self.device)
+                x, y = batch['image'].to(self.device), batch['label'].to(self.device)
 
                 output = self.model(x)
-                loss = self.loss_fn(output, y)
+                # BCEWithLogitsLoss를 위해 라벨 텐서의 차원을 맞춤 (B, 1)
+                loss = self.loss_fn(output, y.unsqueeze(1))
 
                 total_loss += loss.item() * x.shape[0]
-                correct += sum(output.argmax(dim=1) == y).item() # classification task
+                # 정확도 계산 로직 수정: logit > 0 이면 1, 아니면 0으로 예측
+                preds = (output.squeeze() > 0).float()
+                correct += (preds == y).sum().item()
                 
         return total_loss/len(self.valid_loader.dataset), correct/len(self.valid_loader.dataset)
     
     def test(self, test_loader):
-        self.model.load_state_dict(torch.load(self.best_model_path))
+        # self.model.load_state_dict(torch.load(self.best_model_path)) # main.py에서 trainer.train()을 호출하면 이미 최적 모델이 로드되어 있음
         self.model.eval()
         with torch.no_grad():
-            result = []
+            predictions = []
+            true_labels = []
             for batch in test_loader:
-                x = batch['data'].to(self.device)
-                output = self.model(x).detach().cpu().numpy()
-                result.append(output)
+                x = batch['image'].to(self.device)
+                y = batch['label'].numpy()
+                
+                output = self.model(x)
+                # Softmax 대신 원시 logit 값을 그대로 반환
+                output = output.detach().cpu().numpy()
+                
+                predictions.append(output)
+                true_labels.append(y)
 
-        return np.concatenate(result,axis=0)
+        predictions = np.concatenate(predictions, axis=0)
+        true_labels = np.concatenate(true_labels, axis=0)
+        return predictions, true_labels
